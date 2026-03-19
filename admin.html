@@ -1,0 +1,307 @@
+ <!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>U2M 관리자</title>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+body{
+font-family:'Segoe UI',sans-serif;
+background:#f4f6fb;
+padding:20px;
+transition:.3s;
+}
+
+body.dark{
+background:#121212;
+color:white;
+}
+
+.section{
+background:white;
+padding:20px;
+border-radius:15px;
+margin-bottom:20px;
+box-shadow:0 5px 20px rgba(0,0,0,0.1);
+}
+
+body.dark .section{
+background:#1e1e1e;
+}
+
+.item{
+padding:10px;
+border-bottom:1px solid #eee;
+display:flex;
+justify-content:space-between;
+align-items:center;
+}
+
+body.dark .item{
+border-bottom:1px solid #333;
+}
+
+button{
+padding:6px 12px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+margin-top:8px;
+}
+
+.delete{background:#ff4757;color:white;}
+.primary{background:#6c5ce7;color:white;}
+.warning{background:#ffa502;color:white;}
+.toggleBtn{background:#2f3542;color:white;}
+.logout{background:#ff6b6b;color:white;}
+
+.hidden{display:none;}
+
+input{
+padding:8px;
+border-radius:8px;
+border:1px solid #ccc;
+margin-top:10px;
+width:100%;
+}
+</style>
+</head>
+<body>
+
+<div id="loginBox" style="text-align:center;margin-top:200px;">
+<h2>🔐 관리자 비밀번호 입력</h2>
+<input type="password" id="adminPw" placeholder="비밀번호 입력">
+<br>
+<button class="primary" onclick="checkPw()">로그인</button>
+</div>
+
+<div id="adminContent" style="display:none;">
+
+<h1>🔐 관리자 모드</h1>
+<button class="logout" onclick="logout()">로그아웃</button>
+
+<div class="section">
+<h2>👑 오늘 TOP3</h2>
+<div id="top3">불러오는 중...</div>
+<button class="warning" onclick="resetToday()">🔄 오늘 기록 전체 삭제</button>
+</div>
+
+<div class="section">
+<h2>📊 전체 점수</h2>
+<button class="toggleBtn" onclick="toggleScores()">펼치기 / 접기</button>
+<div id="scores" class="hidden"></div>
+</div>
+
+<div class="section">
+<h2>🚫 금지 닉네임 관리</h2>
+<input id="banInput" placeholder="금지할 닉네임 입력">
+<button class="primary" onclick="addBan()">추가</button>
+<div id="banList"></div>
+</div>
+
+<div class="section">
+<h2>✉ 문의 목록</h2>
+<div id="inquiries"></div>
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { 
+getFirestore, collection, onSnapshot, 
+deleteDoc, doc, query, orderBy,
+addDoc, getDocs 
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBUcq1-cwld8NR69eXCTjnNRxfDaCPOiZU",
+  authDomain: "u2m-kst.firebaseapp.com",
+  databaseURL: "https://u2m-kst-default-rtdb.firebaseio.com",
+  projectId: "u2m-kst",
+  storageBucket: "u2m-kst.firebasestorage.app",
+  messagingSenderId: "834181779058",
+  appId: "1:834181779058:web:db5299d115ec42a6367ceb",
+  measurementId: "G-F88DGRV7CR"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+let today=new Date().toISOString().split("T")[0];
+
+////////////////////////////
+// 로그아웃
+////////////////////////////
+////////////////////////////
+// 🔐 비밀번호 체크
+////////////////////////////
+
+window.checkPw=function(){
+
+let pw=document.getElementById("adminPw").value;
+
+if(pw==="kstu2m"){
+sessionStorage.setItem("adminLogin","true");
+document.getElementById("loginBox").style.display="none";
+document.getElementById("adminContent").style.display="block";
+}else{
+alert("비밀번호 틀림");
+}
+};
+
+window.onload=function(){
+if(sessionStorage.getItem("adminLogin")=="true"){
+document.getElementById("loginBox").style.display="none";
+document.getElementById("adminContent").style.display="block";
+}
+};
+
+////////////////////////////
+// TOP3 + 점수
+////////////////////////////
+
+const scoreQuery=query(
+collection(db,"scores"),
+orderBy("score","desc")
+);
+
+onSnapshot(scoreQuery,(snapshot)=>{
+
+let scoreHTML="";
+let topHTML="";
+let rank=1;
+
+snapshot.forEach(docSnap=>{
+let data=docSnap.data();
+
+scoreHTML+=`
+<div class="item">
+<div>${data.name} | ${data.score}점 | ${data.date}</div>
+<button class="delete" onclick="deleteScore('${docSnap.id}')">삭제</button>
+</div>
+`;
+
+if(data.date===today && rank<=3){
+topHTML+=`${rank}등 ${data.name} (${data.score}점)<br>`;
+rank++;
+}
+
+});
+
+document.getElementById("scores").innerHTML=scoreHTML;
+document.getElementById("top3").innerHTML=topHTML || "오늘 기록 없음";
+
+});
+
+window.deleteScore=async function(id){
+if(confirm("삭제할까요?")){
+await deleteDoc(doc(db,"scores",id));
+}
+};
+
+////////////////////////////
+// 🔄 오늘 전체 삭제
+////////////////////////////
+
+window.resetToday=async function(){
+
+if(!confirm("오늘 기록 전체 삭제할까요?")) return;
+
+const snapshot=await getDocs(collection(db,"scores"));
+
+snapshot.forEach(async(docSnap)=>{
+if(docSnap.data().date===today){
+await deleteDoc(doc(db,"scores",docSnap.id));
+}
+});
+
+alert("오늘 기록 삭제 완료");
+};
+
+////////////////////////////
+// 펼치기
+////////////////////////////
+
+window.toggleScores=function(){
+document.getElementById("scores").classList.toggle("hidden");
+};
+
+////////////////////////////
+// 🚫 금지 닉네임
+////////////////////////////
+
+onSnapshot(collection(db,"bannedNames"),(snapshot)=>{
+
+let html="";
+
+snapshot.forEach(docSnap=>{
+let data=docSnap.data();
+
+html+=`
+<div class="item">
+<div>${data.name}</div>
+<button class="delete" onclick="deleteBan('${docSnap.id}')">삭제</button>
+</div>
+`;
+});
+
+document.getElementById("banList").innerHTML=html || "금지 닉네임 없음";
+
+});
+
+window.addBan=async function(){
+
+let name=document.getElementById("banInput").value.trim();
+if(!name)return;
+
+await addDoc(collection(db,"bannedNames"),{
+name:name
+});
+
+document.getElementById("banInput").value="";
+};
+
+window.deleteBan=async function(id){
+await deleteDoc(doc(db,"bannedNames",id));
+};
+
+////////////////////////////
+// 문의
+////////////////////////////
+
+onSnapshot(collection(db,"inquiries"),(snapshot)=>{
+
+let html="";
+
+snapshot.forEach(docSnap=>{
+let data=docSnap.data();
+
+html+=`
+<div class="item">
+<div>
+<b>${data.name}</b><br>
+${data.message}<br>
+<small>${data.date}</small>
+</div>
+<button class="delete" onclick="deleteInquiry('${docSnap.id}')">삭제</button>
+</div>
+`;
+});
+
+document.getElementById("inquiries").innerHTML=html || "문의 없음";
+
+});
+
+window.deleteInquiry=async function(id){
+if(confirm("삭제할까요?")){
+await deleteDoc(doc(db,"inquiries",id));
+}
+};
+
+</script>
+
+</body>
+</html>
